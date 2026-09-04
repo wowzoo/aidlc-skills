@@ -56,7 +56,7 @@ EXCLUDE_QUOTE = re.compile(
     r"won'?t|out\s*of\s*scope|not\s*in\s*scope|non-?goal", re.I)
 
 # 근거가 입력 문서가 아니라 **이 산출물 자신**을 가리키는 것(it.17 신설).
-# 실측 과녁 — it.15 `plandetail` C77 의 cites[2] 가 "이 문서 파트 4 §1" 이고, 그러면서
+# 실측 과녁 — it.15 `plandetail` C77 의 cites[2] 가 "이 문서 파트 4 #01" 이고, 그러면서
 # 강도 최상 · Layer 1 · 충돌로 세어져 표지 판정이 쓰는 집계에 들어갔다. 채점자가
 # **거짓 양성**으로 판정한 자리다. 계약 지점은 두 입력 문서가 합의해야 하는 자리이므로
 # 산출물 자신은 경합의 당사자가 될 수 없다.
@@ -158,6 +158,9 @@ def main() -> int:
                     help="입력 문서의 짧은 이름 전부. Contract 를 거의 못 낸 문서를 찾는다. "
                          "cites 에서 부르는 이름이 여러 가지면 "
                          "'05|RE05|RE §5' 처럼 | 로 별칭을 묶는다")
+    ap.add_argument("--full", action="store_true",
+                    help="접는 자리를 전량 펼친다(「원소 여럿을 인용한 Contract」 표). "
+                         "접힌 목록을 못 알아채는 실패가 있었으므로 접을 때 남는 수를 찍는다")
     args = ap.parse_args()
 
     surfaces = json.load(open(args.surfaces, encoding="utf-8"))
@@ -286,6 +289,73 @@ def main() -> int:
             print(f"- `{sid}`({STATUS_LABEL.get(st, st)}) 인용 {got}개 < {need}개 필요")
         if not missing and not thin_cites:
             print("\nContract 전부가 상태별 하한을 넘는다.")
+
+    # ── 원소 여럿을 인용한 Contract (it.26 신설 · ㊴) ──────────────────────
+    # **세기만 한다. 어긋남이 아니다.** 판정(접었는가)은 사람이 하고 이 절은 그 모집단을 준다.
+    #
+    # 왜 스크립트가 세는가 — it.25 에 ㊲ 가 자기 보고로 이 수를 요구했더니 **세 런이 `0` 을
+    # 적었고 채점자 실측은 16 · 92 · 120** 이었다(접은 자리도 0 이 아니었다). 그리고 **채점자
+    # 넷의 값도 서로 갈렸다**(9 · 16 · 92 · 120) — 즉 **그 수의 정의가 어디에도 없었다.**
+    # 확정 사실 *"정본에 자리가 없는 축은 기계가 못 지킨다"*(it.12)의 자기 보고 판이고,
+    # 처방은 검사를 더 넣는 것이 아니라 **셀 수 있는 수를 사람이 세지 않게 하는 것**이다.
+    #
+    # 세는 기준 — 한 `cites` 문자열 안에서 **원문이 스스로 가른 표지**를 센다. 넷이다.
+    #   ①표 행 이어붙임(`|` 로 이은 칸이 셋 이상) ②번호·기호 매김(`①`~`⑳` · `1.` · `- ` ·
+    #   `#N`) ③서로 다른 ID 토큰(`FR-...` · `BC-017` 계열) ④**구분자로 이어 쓴 열거**
+    #   (` / ` · ` · ` · `, `) — **원문 인용 부호 안에서만** 센다.
+    # 셋 이상이면 「원소 여럿을 인용했다」로 세고 **어느 표지로 세었는지 함께 찍는다.**
+    #
+    # ④ 를 넣은 근거가 실측이다 — ①~③ 만으로는 `table-order` 가 **0** 이었고 그 집합의
+    # 인용은 *"테이블 번호 및 비밀번호 설정 / 16시간 세션 생성 / 자동 로그인 활성화"* 처럼
+    # **슬래시로 가른 형태**다. 확정 사실 *"과녁 하나로 채택 검증한 검사는 그 과녁의 표기에
+    # 맞춰진다"*(it.17) → **표기가 다른 집합을 하나 더 대 보고 넓혔다.** 인용 부호 밖을
+    # 세지 않는 것이 필수다 — 해설 문장의 쉼표가 전부 걸린다.
+    ELEM_ID = re.compile(r"\b[A-Z][A-Z0-9]{1,9}(?:-[A-Z0-9]{1,9}){1,3}\b")
+    ELEM_NUM = re.compile(r"[①-⑳]|(?<![0-9.])[0-9]{1,2}\.\s|(?:^|\s)[-*]\s|#[0-9]{1,3}\b")
+    QSPAN = re.compile(r"[\"“]([^\"”]{8,})[\"”]")
+    ELEM_SEP = re.compile(r"\s/\s|\s·\s|,\s")
+    multi = []
+    for s in surfaces:
+        marks = {}
+        for i, c in enumerate(s.get("_cites", [])):
+            t = str(c)
+            pipes = t.count("|")
+            ids = {m.group(0) for m in ELEM_ID.finditer(t)}
+            nums = len(ELEM_NUM.findall(t))
+            seps = max((len(ELEM_SEP.findall(q)) + 1
+                        for q in QSPAN.findall(t)), default=0)
+            n = max(pipes - 1 if pipes >= 3 else 0, len(ids), nums,
+                    seps if seps >= 3 else 0)
+            if n >= 3:
+                kind = ("표 행" if pipes >= 3 and (pipes - 1) == n
+                        else "ID" if len(ids) == n
+                        else "번호·불릿" if nums == n else "구분자 열거")
+                marks[f"cites[{i}]"] = (n, kind)
+        if marks:
+            multi.append((s["id"], marks))
+    print("\n## 원소 여럿을 인용한 Contract — **세기만 한다**\n")
+    if not surfaces or not total_cites:
+        print("⚠ `cites` 가 없어 **이 축은 꺼졌다.** 0 이 통과가 아니다.")
+    else:
+        print(f"**원소 셋 이상을 인용한 Contract {len(multi)}개** / 전체 {total}개."
+              " 이 수를 자기 보고에 쓸 때 **이 줄을 그대로 붙인다**(㊱-b).")
+        print("\n**이 절은 판정하지 않는다** — 여기 오른 Contract 마다"
+              " *「원문이 스스로 가른 것을 하나로 접었는가」*를 손으로 갈라"
+              " `eval_metadata.json` 에 적는다(㊲). **접지 않았으면 그것도 적는다.**")
+        if multi:
+            shown = multi if args.full else multi[:40]
+            print("\n| Contract | 자리 | 원소 수 | 무엇으로 세었나 |")
+            print("|---|---|---|---|")
+            for sid, marks in shown:
+                for where, (n, kind) in marks.items():
+                    print(f"| `{sid}` | `{where}` | {n} | {kind} |")
+            if len(shown) < len(multi):
+                print(f"\n⚠ **판정하지 않은 {len(multi) - len(shown)}건이 남아 있다** —"
+                      " 전량은 `--full` 로 본다")
+        print("\n**이 절이 보는 표기는 넷이다** — 표 행 이어붙임 · 번호·기호 매김 ·"
+              " ID 토큰 · 인용 부호 안의 구분자 열거(` / ` · ` · ` · `, `)."
+              " **인용 부호 밖의 산문으로 이어 쓴 열거는 보지 않으므로 0 이"
+              " 「접은 것이 없다」를 뜻하지 않는다.**")
 
     # ── 근거가 산출물 자신인가 (it.17 신설) ───────────────────────────────
     # 이것은 후보가 아니라 **어긋남**이다 — 범위 제외 문장과 달리 정당한 경우가 없다.

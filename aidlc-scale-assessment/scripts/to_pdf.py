@@ -152,6 +152,12 @@ def main() -> int:
                 with open(side, "w", encoding="utf-8") as fh:
                     json.dump({"fonts": unexpected, "glyphs": sorted(named)},
                               fh, ensure_ascii=False, indent=1)
+                    # `json.dump` 는 마지막 개행을 붙이지 않는다 — 그러면 `wc -l` 과
+                    # `splitlines()` 가 한 줄 갈리고 **두 수가 다 맞다.** 실측에서
+                    # 그것이 파생 수치 어긋남으로 잡혔다(it.24, 표본 둘). 규약으로
+                    # 두면 쓰는 사람이 바뀔 때 새므로 **JSON 을 쓰는 코드 자리마다**
+                    # 이 한 줄을 붙인다.
+                    fh.write("\n")
                 print(f"     · 받아쓸 파일: {side}"
                       " → `python3 check_html.py <html> --glyph-report <이 파일>`")
             else:

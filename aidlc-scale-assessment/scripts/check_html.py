@@ -294,6 +294,51 @@ def check(path: str, extra_glyphs: set = frozenset()) -> list[str]:
             f"⚠ {line}행 — {rows}행 표에 `.tw.split` 이 없다."
             " 인쇄에서 통째로 밀리면 앞 페이지가 빈다(`<div class=\"tw split\">`)")
 
+    # ── 7. 본문이 쓴 class·CSS 변수가 `<style>` 에 정의돼 있는가 ─────────────
+    # **이 축은 it.22 까지 한 번도 검사된 적이 없다.** 세 채점자가 독립적으로 같은 것을
+    # 지목했고 결함 여섯 축 어디에도 들어가지 않았다 — 한 산출물에서 CSS 에 없는 class
+    # **54곳** · 미정의 `var()` **17곳**이 나와 막대(`.bt-track` 6곳)·인접 행렬 히트맵·
+    # 표지 파트 카드 여섯이 **렌더되지 않았다.** `check_numbers.py` 는 그 막대를
+    # *"값·분모·width 가 정본과 같다"* 로 통과시켰다(`width:` 문자열만 봤다).
+    #
+    # **「검사를 더 넣는 계열」과 갈린다.** `on_exit_v2` 가 닫은 것은 *"겨냥한 유형은 매번
+    # 사라지는데 총합이 줄지 않는" 계열이고, 이 축은 **한 번도 검사된 적이 없으며 실패의
+    # 결과가 「다른 형태로 옮김」이 아니라 「그 자리가 안 보임」**이다.
+    #
+    # 실패가 아니라 **어긋남**으로 센다 — 렌더가 안 되는 것은 통과시킬 수 없다.
+    # 다만 **집합마다 갈렸다**(한 산출물은 0 이었다) → 골격 결함이 아니라 런의 이탈이다.
+    style_src = "\n".join(m.group(1) for m in re.finditer(r"<style[^>]*>(.*?)</style>", text, re.S))
+    if style_src:
+        # 선언된 class. `.a.b` · `.a > .b` · `.a, .b` 전부에서 토큰을 뽑는다.
+        declared = set(re.findall(r"\.([A-Za-z][\w-]*)", style_src))
+        # 선언된 CSS 변수(`--x:` 형태만 — `var(--x)` 는 사용이다).
+        declared_var = set(re.findall(r"(--[\w-]+)\s*:", style_src))
+        # 주석 안의 class 이름은 설명이다(골격이 이름을 백틱·속성으로 적는다) — 빼지 않으면
+        # 오탐 기계가 된다. **줄바꿈은 보존한다** — 공백으로 통째로 치환하면 이후 행 번호가
+        # 전부 밀린다(it.18 에 실제로 그 버그가 나 보고 행이 7행씩 어긋났다).
+        head_len = text.find("</style>") + 8 if "</style>" in text else 0
+        body = text[head_len:]
+        offset = text.count("\n", 0, head_len)
+        body_wo = COMMENT.sub(lambda m: "\n" * m.group(0).count("\n"), body)
+        used: dict[str, int] = {}
+        for m in re.finditer(r'class="([^"]*)"', body_wo):
+            line = offset + body_wo.count("\n", 0, m.start()) + 1
+            for tok in m.group(1).split():
+                if tok and tok not in declared:
+                    used.setdefault(tok, line)
+        for tok, line in sorted(used.items(), key=lambda kv: kv[1]):
+            problems.append(
+                f"{line}행 — class `{tok}` 가 `<style>` 에 없다."
+                " 그 자리는 스타일 없이 렌더된다 — 골격의 이름을 쓴다")
+        used_var: dict[str, int] = {}
+        for m in re.finditer(r"var\((--[\w-]+)", body_wo):
+            if m.group(1) not in declared_var:
+                used_var.setdefault(m.group(1), offset + body_wo.count("\n", 0, m.start()) + 1)
+        for tok, line in sorted(used_var.items(), key=lambda kv: kv[1]):
+            problems.append(
+                f"{line}행 — CSS 변수 `{tok}` 가 정의돼 있지 않다."
+                " 그 속성은 무시된다 — `:root` 에 있는 이름을 쓴다")
+
     return problems
 
 
